@@ -1,0 +1,104 @@
+---
+title: "wh_excl_s1_da"
+output: html_document
+date: "2024-07-11"
+---
+
+```{r}
+# Load necessary libraries for data manipulation and modeling
+library(here)
+library(lme4)
+library(lmerTest)
+library(dplyr)
+library(ggplot2)
+library(readr)
+```
+
+```{r}
+# Read the CSV file into a dataframe
+data <- read_csv("wh_excl_data_s1.csv", show_col_types = FALSE)
+```
+
+```{r}
+# Calculate summary statistics for each combination of mirativity, valence, and noteworthiness
+summary_stats <- data %>%
+  group_by(mirativity, valence, noteworthiness) %>%
+  summarize(
+    mean_selected = mean(felicity_rating, na.rm = TRUE),  # Calculate mean felicity rating
+    sd_selected = sd(felicity_rating, na.rm = TRUE),  # Calculate standard deviation of felicity rating
+    se_selected = sd_selected / sqrt(n()),  # Calculate standard error of the mean
+    ci_lower = mean_selected - qt(0.975, df = n() - 1) * se_selected,  # Calculate lower bound of 95% CI
+    ci_upper = mean_selected + qt(0.975, df = n() - 1) * se_selected,  # Calculate upper bound of 95% CI
+    .groups = 'drop'  # Ungroup the data after summarizing
+  )
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(summary_stats, aes(x = valence, y = mean_selected, fill = noteworthiness)) +
+  # 1. Dodge bars and outline them
+  geom_bar(
+    stat = "identity",
+    position = position_dodge(width = 0.9),
+    color = "black",       # Thin black outline
+    linewidth = 0.5        # Outline thickness
+  ) +
+  # 2. Add error bars
+  geom_errorbar(
+    aes(ymin = ci_lower, ymax = ci_upper),
+    width = 0.2,
+    position = position_dodge(width = 0.9)
+  ) +
+  # 3. Add individual data points with jitter + dodge
+  geom_point(
+    data = data,
+    aes(x = valence, y = felicity_rating, fill = noteworthiness),
+    position = position_jitterdodge(dodge.width = 0.9, jitter.width = 0.2),
+    shape = 21,       # Allows separate fill and outline colors
+    size = 2,
+    stroke = 0.5,     # Outline thickness on the points
+    alpha = 0.6,
+    color = "black"   # Black outline around the points
+  ) +
+  # 4. Facet if needed
+  facet_wrap(
+    ~ mirativity,
+    labeller = labeller(mirativity = c("+" = "+Mirativity", "-" = "-Mirativity"))
+  ) +
+  # 5. Labels and theme
+  labs(
+    x = "Valence",
+    y = "Felicity Rating",
+    fill = "Noteworthiness"    # legend title for fill
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(hjust = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  ) +
+  # 6. Optional: define custom color scale or y-axis limits
+  scale_fill_manual(values = c("+" = "#F8A19F", "-" = "#86D4D3")) +
+  scale_y_continuous(limits = c(0, 10), breaks = seq(0, 10, 2))
+
+```
+
+```{r}
+# Fit a linear mixed-effects model with random slopes for valence within participants and random intercepts for items
+best_model <- lmer(
+  felicity_rating ~ mirativity * noteworthiness * valence + (1 + valence | submission_id) + (1 | itemname),
+  data = data,
+  REML = FALSE  # Use maximum likelihood estimation
+)
+```
+
+```{r}
+# Summarize the fitted model
+summary(best_model)
+```
+
+
+
+

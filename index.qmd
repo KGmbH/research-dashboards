@@ -1,0 +1,31 @@
+---
+title: "Research Dashboards"
+format:
+  html:
+    css: styles.css
+    toc: false
+    embed-resources: true
+page-layout: full
+---
+
+::: hero
+# Research Dashboards
+
+Interactive dashboards built with **Quarto** and **R** to present research findings in a clear, visual, and accessible way.
+:::
+
+## Dashboards
+
+::::: dashboard-grid
+::: dashboard-card
+### [Wh-Exclamatives](./wh_exclamatives_dashboard/index.html)
+
+An interactive dashboard based on my work on the felicity conditions and interpretation of wh-exclamative clauses.
+:::
+
+::: {.dashboard-card .dashboard-card-coming}
+### More dashboards coming soon
+
+Further dashboards based on published papers and related research projects will be added here over time.
+:::
+:::::
