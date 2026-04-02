@@ -1,0 +1,300 @@
+---
+title: "gender_slur_s3_da_osf"
+output: html_document
+date: "2025-07-03"
+---
+
+```{r}
+data <- read_csv("data_s3_clean.csv")
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# Calculate summary statistics for target_gender x pejorative combinations
+summary_stats <- data %>%
+  group_by(target_gender, pejorative) %>%
+  summarise(
+    n = n(),
+    mean_rating = mean(selected_option, na.rm = TRUE),
+    sd_rating = sd(selected_option, na.rm = TRUE),
+    median_rating = median(selected_option, na.rm = TRUE),
+    se_rating = sd_rating / sqrt(n),
+    ci_lower = mean_rating - 1.96 * se_rating,
+    ci_upper = mean_rating + 1.96 * se_rating,
+    .groups = "drop"
+  )
+
+print("Summary Statistics by Target Gender and Pejorative Type:")
+print(summary_stats)
+
+# Wide format table
+summary_wide <- summary_stats %>%
+  select(target_gender, pejorative, mean_rating) %>%
+  pivot_wider(names_from = pejorative, values_from = mean_rating)
+
+print("Mean Ratings in Wide Format:")
+print(summary_wide)
+
+# Visualization: Target Gender x Pejorative interaction
+ggplot(summary_stats, aes(x = target_gender, y = mean_rating, 
+                         color = pejorative, group = pejorative)) +
+  geom_errorbar(
+    aes(ymin = ci_lower, ymax = ci_upper),
+    width = 0.1,
+    position = position_dodge(width = 0.03)
+  ) +
+  geom_line(size = 0.8, position = position_dodge(width = 0.03)) +
+  geom_point(size = 3, position = position_dodge(width = 0.03)) +
+  labs(
+    x = "Target Gender",
+    y = "Acceptability",
+    color = "Pejorative Type"
+  ) +
+  scale_x_discrete(labels = c("female_target" = "Female Target", 
+                             "male_target" = "Male Target")) +
+  scale_y_continuous(limits = c(3, 6), breaks = seq(3, 6, by = 0.5)) +
+  # Colorblind-friendly palette (Paul Tol's palette)
+  scale_color_manual(values = c(
+    "COI" = "#117733",    # Green
+    "GOI" = "#CC6677"     # Rose/Purple
+  )) +
+  theme_bw() +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.position = "right",
+    legend.background = element_rect(fill = NA, color = NA),
+    strip.background = element_rect(fill = "gray95"),
+    strip.text = element_text(size = 11),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)
+  )
+```
+```{r}
+library(lme4)
+library(lmerTest)  # For p-values
+
+# Ensure factors are properly coded
+data$target_gender <- as.factor(data$target_gender)
+data$pejorative <- as.factor(data$pejorative)
+data$submission_id <- as.factor(data$submission_id)
+data$itemname <- as.factor(data$itemname)
+
+# Add random slopes for both factors by items
+model_complex1 <- lmer(selected_option ~ target_gender * pejorative + 
+                      (1 + target_gender + pejorative | submission_id) + 
+                      (1 + target_gender + pejorative | itemname), 
+                      data = data)
+summary(model_complex1)
+
+```
+
+
+```{r}
+# Calculate summary statistics for individual tokens by target gender AND pejorative
+token_stats <- data %>%
+  filter(!is.na(token)) %>%
+  group_by(target_gender, pejorative, token) %>%
+  summarise(
+    n = n(),
+    mean_rating = mean(selected_option, na.rm = TRUE),
+    sd_rating = sd(selected_option, na.rm = TRUE),
+    se_rating = sd_rating / sqrt(n),
+    .groups = "drop"
+  )
+
+print("Summary Statistics by Target Gender, Pejorative, and Token:")
+print(token_stats)
+
+# Improved visualization (fixed)
+ggplot(token_stats, aes(x = reorder(token, mean_rating), y = mean_rating)) +
+  geom_col(fill = "steelblue", alpha = 0.7) +
+  geom_text(aes(label = round(mean_rating, 2)), 
+            hjust = -0.2, size = 3.5, fontface = "bold") +
+  coord_flip() +
+  facet_grid(pejorative ~ target_gender, 
+             scales = "free",
+             labeller = labeller(
+               target_gender = c("female_target" = "Female Target", 
+                                "male_target" = "Male Target"),
+               pejorative = c("COI" = "COI Terms", "GOI" = "GOI Terms")
+             )) +
+  labs(
+    title = "Mean Naturalness Ratings by Token, Target Gender, and Pejorative Type",
+    x = "Token",
+    y = "Mean Rating (1-7)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 12, face = "bold", color = "white"),
+    axis.text.y = element_text(size = 11, face = "bold"),
+    axis.text.x = element_text(size = 10),
+    axis.title = element_text(size = 12, face = "bold"),
+    plot.margin = margin(1, 1.5, 1, 1, "cm"),
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "darkgray")  # Removed alpha argument
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  scale_x_discrete(expand = expansion(mult = c(0.02, 0.02)))
+```
+
+```{r}
+library(dplyr)
+library(cluster)
+
+# Calculate means, SDs, and sample sizes for CI calculation
+token_stats <- data %>%
+  filter(!is.na(token)) %>%
+  group_by(token, pejorative, target_gender) %>%
+  summarise(
+    mean_rating = mean(selected_option, na.rm = TRUE),
+    sd_rating = sd(selected_option, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  )
+
+# Calculate gender differences with 95% CIs
+token_analysis <- token_stats %>%
+  pivot_wider(
+    names_from = target_gender, 
+    values_from = c(mean_rating, sd_rating, n),
+    names_sep = "_"
+  ) %>%
+  mutate(
+    gender_diff = mean_rating_female_target - mean_rating_male_target,
+    # Standard error of the difference
+    se_diff = sqrt(sd_rating_female_target^2/n_female_target + sd_rating_male_target^2/n_male_target),
+    # Degrees of freedom (conservative approach)
+    df = pmin(n_female_target - 1, n_male_target - 1),
+    # 95% CI bounds
+    ci_lower = gender_diff - qt(0.975, df) * se_diff,
+    ci_upper = gender_diff + qt(0.975, df) * se_diff
+  )
+
+# Continue with clustering
+silhouette_scores <- c()
+for(k in 2:4) {
+  km <- kmeans(token_analysis$gender_diff, centers = k, nstart = 25)
+  sil <- silhouette(km$cluster, dist(token_analysis$gender_diff))
+  silhouette_scores[k-1] <- mean(sil[, "sil_width"])
+}
+
+optimal_k <- which.max(silhouette_scores) + 1
+set.seed(123)
+final_clustering <- kmeans(token_analysis$gender_diff, centers = optimal_k, nstart = 25)
+token_analysis$cluster <- final_clustering$cluster
+
+# Add bias type labels
+token_analysis$bias_type <- case_when(
+  token_analysis$cluster == which.max(final_clustering$centers) ~ "Female",
+  token_analysis$cluster == which.min(final_clustering$centers) ~ "Male",
+  TRUE ~ "Neutral"
+)
+
+# Display results with CIs - FIXED: include cluster in select
+print("Clustering results with 95% CIs:")
+print(token_analysis %>% 
+      select(token, pejorative, gender_diff, ci_lower, ci_upper, cluster, bias_type) %>% 
+      mutate(
+        gender_diff = round(gender_diff, 3),
+        ci_lower = round(ci_lower, 3),
+        ci_upper = round(ci_upper, 3)
+      ) %>%
+      arrange(cluster, desc(gender_diff)))
+
+# Variance explained
+total_variance <- var(token_analysis$gender_diff) * (nrow(token_analysis) - 1)
+within_cluster_variance <- final_clustering$tot.withinss
+variance_explained <- (total_variance - within_cluster_variance) / total_variance
+print(paste("Variance explained by clustering:", round(variance_explained * 100, 1), "%"))
+```
+
+```{r}
+library(dplyr)
+library(cluster)
+token_analysis <- data %>%
+  filter(!is.na(token)) %>%
+  group_by(token, pejorative, target_gender) %>%
+  summarise(mean_rating = mean(selected_option, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = target_gender, values_from = mean_rating, names_prefix = "rating_") %>%
+  mutate(gender_diff = rating_female_target - rating_male_target)
+silhouette_scores <- c()
+for(k in 2:4) {
+  km <- kmeans(token_analysis$gender_diff, centers = k, nstart = 25)
+  sil <- silhouette(km$cluster, dist(token_analysis$gender_diff))
+  silhouette_scores[k-1] <- mean(sil[, "sil_width"])
+}
+optimal_k <- which.max(silhouette_scores) + 1
+print(paste("Optimal number of clusters:", optimal_k))
+print("Silhouette scores:")
+print(data.frame(k = 2:4, silhouette = round(silhouette_scores, 3)))
+set.seed(123)
+final_clustering <- kmeans(token_analysis$gender_diff, centers = optimal_k, nstart = 25)
+token_analysis$cluster <- final_clustering$cluster
+
+# ADD THIS: Create bias_type labels
+token_analysis$bias_type <- case_when(
+  token_analysis$cluster == which.max(final_clustering$centers) ~ "Female-biased",
+  token_analysis$cluster == which.min(final_clustering$centers) ~ "Male-biased",
+  TRUE ~ "Neutral"
+)
+
+print("Clustering results:")
+print(token_analysis %>% 
+      select(token, pejorative, gender_diff, cluster, bias_type) %>% 
+      arrange(cluster, desc(gender_diff)))
+# ADD THIS: Variance explained (the key robustness measure)
+total_variance <- var(token_analysis$gender_diff) * (nrow(token_analysis) - 1)
+within_cluster_variance <- final_clustering$tot.withinss
+variance_explained <- (total_variance - within_cluster_variance) / total_variance
+print(paste("Variance explained by clustering:", round(variance_explained * 100, 1), "%"))
+```
+
+```{r}
+# Clean minimal bar chart with colorblind-friendly colors
+ggplot(token_analysis, aes(x = reorder(token, gender_diff), y = gender_diff, 
+                          fill = bias_type)) +
+  # Add reference line
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray60", size = 0.5) +
+  
+  # Bars
+  geom_col(width = 0.7, alpha = 0.8) +
+  
+  # Flip coordinates for better readability
+  coord_flip() +
+  
+  # Clean labels
+  labs(
+    x = "Insult",
+    y = "Gender Difference Score",
+    fill = "Bias Type"
+  ) +
+  
+  # Colorblind-friendly palette (Paul Tol's palette)
+  scale_fill_manual(values = c(
+    "Female-biased" = "#CC6677",  # Rose
+    "Male-biased" = "#117733",    # Green  
+    "Neutral" = "#DDCC77"         # Sand
+  )) +
+  
+  # Clean y-axis
+  scale_y_continuous(breaks = seq(-2, 1, 0.5)) +
+  
+  # Clean professional theme
+  theme_bw() +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.text.y = element_text(size = 10),
+    legend.position = "right",
+    legend.background = element_rect(fill = NA, color = NA),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)
+  )
+```
+

@@ -1,0 +1,112 @@
+:root {
+  font-size: 14px;
+}
+
+.card-body {
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-y: auto;
+}
+
+.card-header {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.navbar-brand,
+.navbar .navbar-brand,
+.navbar-brand-container .navbar-brand,
+span.navbar-title,
+.quarto-dashboard .navbar-title {
+  font-size: 18px !important;
+  font-weight: bold !important;
+}
+
+.nav-link {
+  font-size: 15px;
+}
+
+/* Citation links — not clickable but hoverable */
+a[href^="#ref-"] {
+  color: #444;
+  text-decoration: none;
+  border-bottom: 1px dotted #666;
+  cursor: default;
+}
+
+a[href^="#ref-"]:hover {
+  color: #444;
+  text-decoration: none;
+}
+
+/* References page formatting */
+#refs {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+#refs .csl-entry {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.8em;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+#refs .csl-entry * {
+  display: inline !important;
+  float: none !important;
+  width: auto !important;
+  max-width: none !important;
+}
+
+#refs .csl-entry a {
+  display: inline !important;
+  word-break: break-word;
+}
+
+.panel-tabset #refs,
+.card-body #refs,
+.quarto-dashboard-content #refs {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Citation hover tooltip font size */
+.tippy-box,
+div.tippy-content,
+.quarto-citation-tooltip {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.highlight-box-yellow {
+  background-color: #fff3cd;
+  border-left: 4px solid #ffc107;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+.highlight-box-green {
+  background-color: #d4edda;
+  border-left: 4px solid #28a745;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  max-height: 100%;
+}

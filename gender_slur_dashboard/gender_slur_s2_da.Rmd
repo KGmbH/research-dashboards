@@ -1,0 +1,466 @@
+---
+title: "gender_slur_s2_data"
+output: html_document
+date: "2025-03-20"
+---
+
+```{r}
+library(lmerTest)
+library(ggplot2)
+```
+
+
+
+```{r}
+data <- read.csv("/Users/kalle/Desktop/gender_slur_paper/gender_slur_s2_data.csv")
+```
+
+```{r}
+
+
+library(dplyr)
+library(stringr)
+
+data <- data %>%
+  mutate(displayed_sentence = str_replace(displayed_sentence, "<q>The ", "<q>That "))
+```
+
+
+```{r}
+# Count TEST participants before removal
+test_count <- sum(data$submission_id == "TEST")
+cat("Number of TEST participants to be removed:", test_count, "\n")
+
+# Remove participants with submission_id value "TEST"
+data <- data[data$submission_id != "TEST", ]
+
+# Verify removal
+cat("Number of participants remaining:", length(unique(data$submission_id)), "\n")
+```
+
+```{r}
+library(dplyr)
+
+# Create a new data frame that has only one row per submission_id
+data_unique <- data %>%
+  distinct(submission_id, .keep_all = TRUE)
+
+# Calculate mean age and SD from the unique subset
+mean_age <- mean(data_unique$age, na.rm = TRUE)
+sd_age   <- sd(data_unique$age, na.rm = TRUE)
+
+mean_age
+sd_age
+
+```
+
+```{r}
+# Filter for Control1 and Control2 items
+control_data <- data[data$itemname %in% c("Control1", "Control2"), ]
+
+# Identify participants with Individual responses in control items
+problem_participants <- unique(control_data$submission_id[control_data$response == "Individual"])
+
+# Count these participants
+num_problem_participants <- length(problem_participants)
+cat("Number of participants with Individual responses in control items:", num_problem_participants, "\n")
+
+# Remove these participants from the dataset
+if (num_problem_participants > 0) {
+  data <- data[!data$submission_id %in% problem_participants, ]
+  cat("These participants have been removed from the dataset\n")
+  cat("Number of participants remaining:", length(unique(data$submission_id)), "\n")
+}
+```
+
+```{r}
+# Check for participants who responded "Group" for filler items 9-14
+filler_data <- data[data$itemname %in% paste0("filler", 9:14), ]
+
+# Identify participants with Group responses in these filler items
+filler_problem_participants <- unique(filler_data$submission_id[filler_data$response == "Group"])
+
+# Count these participants
+num_filler_problem_participants <- length(filler_problem_participants)
+cat("Number of participants with Group responses in filler items 9-14:", num_filler_problem_participants, "\n")
+
+# Display participant IDs if there are any
+if (num_filler_problem_participants > 1) {
+  cat("Problematic participants:\n")
+  print(filler_problem_participants)
+  
+  # Remove these participants from the dataset
+  data <- data[!data$submission_id %in% filler_problem_participants, ]
+  cat("These participants have been removed from the dataset\n")
+  cat("Number of participants remaining:", length(unique(data$submission_id)), "\n")
+}
+```
+
+```{r}
+# Step 0: Filter to keep only items that start with "item"
+data_filtered <- data[grepl("^Item", data$itemname), ]
+
+# Check how many rows were filtered out
+cat("Original dataframe rows:", nrow(data), "\n")
+cat("Filtered dataframe rows:", nrow(data_filtered), "\n")
+cat("Rows removed:", nrow(data) - nrow(data_filtered), "\n")
+```
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+
+# Recalculate summary statistics focusing on group responses
+summary_stats <- data_filtered %>%
+  # Ensure pejorative_type and action are character vectors
+  mutate(
+    pejorative_type = as.character(pejorative_type),
+    action = as.character(action)
+  ) %>%
+  # Group and summarize
+  group_by(pejorative_type, action) %>%
+  summarize(
+    n = sum(!is.na(response)),
+    individual_count = sum(response == "Individual", na.rm = TRUE),
+    group_count = sum(response == "Group", na.rm = TRUE),
+    prop_group = group_count / n,  # Calculate proportion of Group responses
+    .groups = "drop"
+  ) %>%
+  # Calculate confidence intervals for group proportion
+  mutate(
+    se = sqrt((prop_group * (1 - prop_group)) / n),
+    ci_lower = prop_group - 1.96 * se,
+    ci_upper = prop_group + 1.96 * se
+  )
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Example data transformation: convert prop_group to percentages 
+# and CI bounds to percentage points
+plot_data <- summary_stats %>%
+  mutate(
+    prop_group_pct = 100 * prop_group,
+    ci_lower_pct = 100 * ci_lower,
+    ci_upper_pct = 100 * ci_upper
+  )
+
+ggplot(plot_data, aes(
+    x = pejorative_type,
+    y = prop_group_pct,
+    color = action,
+    group = action
+)) +
+  geom_errorbar(
+    aes(ymin = ci_lower_pct, ymax = ci_upper_pct),
+    width = 0.1,
+    position = position_dodge(width = 0.03)
+  ) +
+  geom_line(size = 0.8, position = position_dodge(width = 0.03)) +
+  geom_point(size = 3, position = position_dodge(width = 0.03)) +
+  labs(
+    x = "Pejorative",
+    y = "Group Directed Responses",
+    color = "Action"
+    # No title here
+  ) +
+  # Scale the y-axis as percentage, here using breaks at 20% increments
+  scale_y_continuous(
+    limits = c(0, 100),
+    breaks = seq(0, 100, by = 20),
+    labels = function(x) paste0(x, "%")
+  ) +
+  scale_color_brewer(palette = "Set1") + 
+  theme_bw() +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.position = "right",
+    legend.background = element_rect(fill = NA, color = NA),
+    strip.background = element_rect(fill = "gray95"),
+    strip.text = element_text(size = 11),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)
+  )
+
+```
+
+```{r}
+# Now convert to factors
+data_filtered$pejorative_type <- as.factor(data_filtered$pejorative_type)
+data_filtered$action <- as.factor(data_filtered$action)
+data_filtered$response <- as.factor(data_filtered$response)
+data_filtered$submission_id <- as.factor(data_filtered$submission_id)
+data_filtered$itemname <- as.factor(data_filtered$itemname)
+
+# Build the GLMER model with the properly transformed data
+# Option 1: Add random slopes for action by participant
+glmer_model <- glmer(
+  response ~ pejorative_type * action  + 
+    (1 + pejorative_type + action | submission_id) + 
+    (1 | itemname),
+  data = data_filtered,
+  family = binomial,
+  control = glmerControl(optimizer = "bobyqa")
+)
+
+
+# View model summary
+summary(glmer_model)
+```
+
+
+
+
+```{r}
+# Create a summary dataframe for participant behavior (by pejorative_type only)
+participant_summary <- data_filtered %>%
+  group_by(submission_id, pejorative_type) %>%
+  summarize(
+    total_responses = n(),
+    group_responses = sum(response == "Group", na.rm = TRUE),
+    group_response_rate = (group_responses / total_responses) * 100,
+    .groups = "drop"
+  )
+```
+
+```{r}
+# Create the visualization
+library(ggplot2)
+ggplot(participant_summary, aes(x = pejorative_type, y = group_response_rate)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "blue") +
+  labs(
+    x = "Pejorative Type",
+    y = "Group-Directed Responses by Participant"
+  ) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    breaks = seq(0, 100, by = 20)
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+```
+
+
+```{r}
+library(dplyr)
+
+# Calculate proportion of "Group" responses for each pejorative word by type
+group_proportions <- data_filtered %>%
+  group_by(pejorative_type, pejorative_word) %>%
+  summarise(
+    total_responses = n(),
+    group_responses = sum(response == "Group", na.rm = TRUE),
+    individual_responses = sum(response == "Individual", na.rm = TRUE),
+    group_proportion = mean(response == "Group", na.rm = TRUE),
+    group_percentage = group_proportion * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(pejorative_type, desc(group_percentage))
+
+# Display the results
+print("Proportion of Group responses by pejorative word and type:")
+print(group_proportions)
+
+# Summary by pejorative type
+type_summary <- group_proportions %>%
+  group_by(pejorative_type) %>%
+  summarise(
+    n_words = n(),
+    mean_group_pct = mean(group_percentage),
+    min_group_pct = min(group_percentage),
+    max_group_pct = max(group_percentage),
+    .groups = "drop"
+  )
+
+print("Summary by pejorative type:")
+print(type_summary)
+```
+
+
+```{reval=FALSE}
+# DEBUG: Why are the frequentist and Bayesian estimates so different?
+
+print("=== DEBUGGING MODEL DISCREPANCY ===")
+
+# Check factor levels and coding
+print("1. RESPONSE VARIABLE CODING:")
+print("Original response levels:")
+print(levels(data_filtered$response))
+print("Original response table:")
+print(table(data_filtered$response))
+
+print("\nBayesian response_numeric coding:")
+print(table(data_filtered$response_numeric))
+print("Bayesian coding: Group=1, Individual=0")
+
+# Check which response the GLMM is modeling
+print("\n2. GLMM IS MODELING:")
+glmm_contrast <- contrasts(data_filtered$response)
+print("GLMM contrasts:")
+print(glmm_contrast)
+
+# The issue is likely here - let's check what the GLMM considers as "success"
+print("GLMM is modeling probability of:")
+if(is.factor(data_filtered$response)) {
+  print(paste("Level:", levels(data_filtered$response)[2], "(coded as 1)"))
+  print(paste("vs Level:", levels(data_filtered$response)[1], "(coded as 0)"))
+}
+
+print("\n3. PEJORATIVE TYPE CODING:")
+print("Levels:")
+print(levels(data_filtered$pejorative_type))
+print("Contrasts:")
+print(contrasts(data_filtered$pejorative_type))
+
+print("\n4. ACTION CODING:")
+print("Levels:")
+print(levels(data_filtered$action))
+print("Contrasts:")
+print(contrasts(data_filtered$action))
+
+# Let's refit the Bayesian model to match the GLMM exactly
+print("\n5. FITTING BAYESIAN MODEL TO MATCH GLMM:")
+
+# Use the same response variable as the GLMM
+bayesian_model_corrected <- brm(
+  response ~ pejorative_type * action + 
+    (1 + pejorative_type + action | submission_id) + 
+    (1 | itemname),
+  data = data_filtered,
+  family = bernoulli(),
+  chains = 2,  # Fewer chains for faster debugging
+  iter = 2000,
+  warmup = 1000,
+  cores = 2,
+  seed = 123,
+  control = list(adapt_delta = 0.95)
+)
+
+print("Corrected Bayesian model summary:")
+print(fixef(bayesian_model_corrected))
+
+# Compare the fixed effects
+print("\n6. COMPARISON OF FIXED EFFECTS:")
+glmm_summary <- summary(glmer_model)
+glmm_coefs <- glmm_summary$coefficients[, "Estimate"]
+
+bayesian_coefs <- fixef(bayesian_model_corrected)[, "Estimate"]
+
+comparison <- data.frame(
+  Parameter = names(glmm_coefs),
+  GLMM = round(glmm_coefs, 3),
+  Bayesian = round(bayesian_coefs, 3),
+  Difference = round(bayesian_coefs - glmm_coefs, 3)
+)
+
+print(comparison)
+
+# If they're still different, check the data being used
+print("\n7. DATA CHECK:")
+print(paste("GLMM used", nrow(glmer_model@frame), "observations"))
+print(paste("Bayesian used", nrow(data_filtered), "observations"))
+
+if(nrow(glmer_model@frame) != nrow(data_filtered)) {
+  print("WARNING: Different number of observations used!")
+}
+
+# Now do the equivalence analysis with the corrected model
+print("\n" %>% rep(3) %>% paste(collapse = ""))
+print("CORRECTED EQUIVALENCE ANALYSIS")
+print("=" %>% rep(40) %>% paste(collapse = ""))
+
+# Extract posterior samples from corrected model
+posterior_corrected <- as_draws_df(bayesian_model_corrected)
+pejorative_samples_corrected <- posterior_corrected$b_pejorative_typeGOI
+
+# ROPE analysis
+rope_bounds <- c(-0.1, 0.1)
+median_effect <- median(pejorative_samples_corrected)
+ci_lower <- quantile(pejorative_samples_corrected, 0.025)
+ci_upper <- quantile(pejorative_samples_corrected, 0.975)
+
+in_rope <- sum(pejorative_samples_corrected >= rope_bounds[1] & 
+               pejorative_samples_corrected <= rope_bounds[2])
+pct_in_rope <- in_rope / length(pejorative_samples_corrected) * 100
+
+print(paste("Median effect:", round(median_effect, 3)))
+print(paste("95% CI: [", round(ci_lower, 3), ", ", round(ci_upper, 3), "]"))
+print(paste("% in ROPE:", round(pct_in_rope, 1), "%"))
+
+# The p-value and Bayesian analysis should now align
+print("\nFREQUENTIST vs BAYESIAN ALIGNMENT:")
+glmm_p <- glmm_summary$coefficients["pejorative_typeGOI", "Pr(>|z|)"]
+print(paste("GLMM p-value:", round(glmm_p, 4)))
+print(paste("Bayesian % in ROPE:", round(pct_in_rope, 1), "%"))
+
+if(glmm_p > 0.05 && pct_in_rope > 75) {
+  print("✓ Results are CONSISTENT: Both suggest no meaningful difference")
+} else if(glmm_p < 0.05 && pct_in_rope < 25) {
+  print("✓ Results are CONSISTENT: Both suggest meaningful difference")  
+} else {
+  print("⚠ Results still INCONSISTENT - further investigation needed")
+}
+
+# Create corrected publication plot
+library(ggplot2)
+
+density_data <- density(pejorative_samples_corrected, n = 1024)
+density_df <- data.frame(x = density_data$x, y = density_data$y)
+
+p_corrected <- ggplot(density_df, aes(x = x, y = y)) +
+  geom_rect(aes(xmin = rope_bounds[1], xmax = rope_bounds[2], 
+                ymin = -Inf, ymax = Inf),
+            alpha = 0.3, fill = "lightgreen", color = NA) +
+  geom_area(alpha = 0.7, fill = "steelblue", color = "darkblue", size = 0.8) +
+  geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 0.8) +
+  geom_vline(xintercept = rope_bounds, linetype = "dashed", 
+             color = "darkgreen", size = 0.6) +
+  geom_vline(xintercept = median_effect, linetype = "dotted", 
+             color = "red", size = 0.8) +
+  annotate("text", x = mean(rope_bounds), y = max(density_df$y) * 0.9, 
+           label = "ROPE\n(Practical\nEquivalence)", 
+           hjust = 0.5, vjust = 1, size = 3.5, color = "darkgreen",
+           fontface = "bold") +
+  labs(
+    title = "Bayesian Equivalence Test: Pejorative Type Effect",
+    subtitle = paste0("Probability of practical equivalence: ", 
+                     round(pct_in_rope, 1), "% | p-value: ", 
+                     round(glmm_p, 3)),
+    x = "Log-odds Difference (GOI vs Baseline)",
+    y = "Posterior Density",
+    caption = paste0("ROPE: ±", abs(rope_bounds[1]), " log-odds. ",
+                    "95% CI: [", round(ci_lower, 2), ", ", 
+                    round(ci_upper, 2), "]")
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "darkblue"),
+    plot.caption = element_text(size = 9, color = "gray40"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11)
+  )
+
+print(p_corrected)
+
+# Final interpretation
+if(pct_in_rope > 90 && glmm_p > 0.10) {
+  print("\nCONCLUSION: Strong evidence that pejorative types behave equivalently")
+  print("Both Bayesian and frequentist approaches agree: no meaningful difference")
+} else if(pct_in_rope > 75 && glmm_p > 0.05) {
+  print("\nCONCLUSION: Moderate evidence that pejorative types behave equivalently") 
+  print("Both approaches suggest no meaningful difference")
+} else {
+  print("\nCONCLUSION: Evidence is inconclusive or suggests meaningful difference")
+}
+```
+

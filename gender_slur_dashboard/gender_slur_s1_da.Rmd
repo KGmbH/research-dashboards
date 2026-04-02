@@ -1,0 +1,675 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-03-19"
+---
+
+```{r}
+library(ggplot2)
+library(lmerTest)
+library(lme4)
+```
+
+```{r}
+data <- read.csv("/Users/kalle/Desktop/gender_slur_paper/gender_slur_s1_data.csv")
+```
+
+```{r}
+# Count frequency of each list across all rows
+all_rows_count <- table(data$List, useNA = "ifany")
+print("Frequency of each list across all rows:")
+print(all_rows_count)
+
+# Count frequency of each list by unique submission_id (participants)
+# This gives us how many participants are assigned to each list
+participant_list_count <- table(unique(data[, c("submission_id", "List")])$List, useNA = "ifany")
+print("Frequency of each list by unique participants (submission_id):")
+print(participant_list_count)
+```
+
+```{r}
+# Remove rows where submission_id equals "TEST"
+data <- data[data$submission_id != "TEST", ]
+```
+
+
+```{r}
+# Get unique participants with their ages
+unique_participants <- unique(data[, c("submission_id", "age")])
+
+# Calculate mean and standard deviation of age
+mean_age <- mean(unique_participants$age, na.rm = TRUE)
+sd_age <- sd(unique_participants$age, na.rm = TRUE)
+
+# Display results
+cat("Mean age:", round(mean_age, 2), "\n")
+cat("Standard deviation of age:", round(sd_age, 2), "\n")
+cat("Number of unique participants:", nrow(unique_participants), "\n")
+```
+
+
+
+```{r}
+# 4. Remove participants who failed control checks
+control1_failures <- data[data$item_number == "Control1" & data$response_type == "Group", ]
+control2_failures <- data[data$item_number == "Control2" & data$response_type == "Individual", ]
+
+failed_submission_ids <- unique(c(control1_failures$submission_id, control2_failures$submission_id))
+
+control1_submission_id_ids <- unique(control1_failures$submission_id)
+control2_submission_id_ids <- unique(control2_failures$submission_id)
+all_failed_submission_id_ids <- unique(c(control1_submission_id_ids, control2_submission_id_ids))
+
+cat("Number of participants who failed Control1:", length(unique(control1_failures$submission_id)), "\n")
+cat("Number of participants who failed Control2:", length(unique(control2_failures$submission_id)), "\n")
+cat("Total number of participants who failed at least one control:", length(failed_submission_ids), "\n")
+
+cat("\nsubmission_id IDs of participants who failed Control1:\n")
+print(control1_submission_id_ids)
+
+cat("\nsubmission_id IDs of participants who failed Control2:\n")
+print(control2_submission_id_ids)
+
+cat("\nAll submission_id IDs of participants who failed at least one control:\n")
+print(all_failed_submission_id_ids)
+
+total_participants_before <- length(unique(data$submission_id))
+data_clean <- data[!data$submission_id %in% failed_submission_ids, ]
+total_participants_after <- length(unique(data_clean$submission_id))
+
+cat("\nRemoved", total_participants_before - total_participants_after, "participants\n")
+cat("Participants remaining:", total_participants_after, "\n")
+
+cat("Rows before:", nrow(data), "\n")
+cat("Rows after:", nrow(data_clean), "\n")
+cat("Rows removed:", nrow(data) - nrow(data_clean), "\n")
+```
+
+```{r}
+# 6. Identify and remove participants who chose "Group" for multiple filler items
+filler_group_responses <- data_clean[grepl("^filler", data_clean$item_number) & 
+                                     data_clean$response_type == "Group", ]
+
+filler_group_counts <- table(filler_group_responses$submission_id)
+
+problematic_participants <- names(filler_group_counts[filler_group_counts > 1])
+
+cat("Number of participants who chose 'Group' for more than one filler item:", 
+    length(problematic_participants), "\n")
+
+problematic_submission_id_ids <- unique(data_clean$submission_id[data_clean$submission_id %in% problematic_participants])
+cat("\nsubmission_id IDs of participants who chose 'Group' for multiple fillers:\n")
+print(problematic_submission_id_ids)
+
+participants_before_filler_check <- length(unique(data_clean$submission_id))
+
+data_clean_rows_before <- nrow(data_clean)
+data_clean <- data_clean[!data_clean$submission_id %in% problematic_participants, ]
+participants_after_filler_check <- length(unique(data_clean$submission_id))
+
+cat("\nRemoved", participants_before_filler_check - participants_after_filler_check, 
+    "additional participants who chose 'Group' for multiple fillers\n")
+cat("Participants remaining after all exclusions:", participants_after_filler_check, "\n")
+
+cat("Rows after control exclusions:", data_clean_rows_before, "\n")
+cat("Rows after filler exclusions:", nrow(data_clean), "\n")
+cat("Additional rows removed:", data_clean_rows_before - nrow(data_clean), "\n")
+```
+
+```{r}
+# 7. Remove filler and control items to create experimental dataset
+data_exp <- data_clean[grep("^item", data_clean$item_number), ]
+```
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+
+# Calculate summary statistics for response_type based on pejorative_type, speaker, and participant_gender
+response_summary <- data_exp %>%
+  # Group by the three factors
+  group_by(pejorative_type, speaker, participant_gender, response_type) %>%
+  # Count observations in each group
+  summarise(
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  # Calculate total observations for each combination of the three factors
+  group_by(pejorative_type, speaker, participant_gender) %>%
+  mutate(
+    total = sum(n),
+    rel_freq = n / total,
+    se = sqrt((rel_freq * (1 - rel_freq)) / total),
+    ci_lower = pmax(0, rel_freq - 1.96 * se),
+    ci_upper = pmin(1, rel_freq + 1.96 * se)
+  ) %>%
+  # Arrange the results for better readability
+  arrange(pejorative_type, speaker, participant_gender, response_type)
+
+# View the summary statistics
+print(response_summary, n = Inf)
+
+# You can also create a wide-format table for easier comparisons
+response_summary_wide <- response_summary %>%
+  select(pejorative_type, speaker, participant_gender, response_type, n, rel_freq) %>%
+  pivot_wider(
+    names_from = response_type,
+    values_from = c(n, rel_freq),
+    values_fill = list(n = 0, rel_freq = 0)
+  )
+
+# View the wide-format table
+print(response_summary_wide, n = Inf)
+```
+
+```{r}
+# Assuming you already created response_summary from previous code
+# Filter for just the "Group" response type (or adjust to match your actual response type category)
+plot_data <- response_summary %>%
+  filter(response_type == "Group") %>%
+  rename(group_pct = rel_freq) %>%
+  mutate(
+    # Convert to percentage
+    group_pct = group_pct * 100,
+    ci = 1.96 * se * 100 # Converting SE to 95% CI in percentage points
+  )
+# Create the publication-ready plot with your requested changes
+ggplot(plot_data, aes(x = pejorative_type, y = group_pct, 
+                       color = participant_gender, 
+                       group = participant_gender)) +
+  # Add error bars
+  geom_errorbar(aes(ymin = group_pct - ci, ymax = group_pct + ci), 
+                width = 0.1, position = position_dodge(0.03)) +
+  geom_line(size = 0.8) +
+  geom_point(size = 3) +
+  # Use a cleaner facet layout with a better label
+  facet_wrap(~speaker, labeller = labeller(speaker = c(
+    "female" = "Female Speaker",
+    "male" = "Male Speaker"
+  ))) +
+  # Use descriptive labels with proper capitalization
+  labs(
+    x = "Pejorative",
+    y = "Group-Directed Responses",
+    color = "Participant"
+  ) +
+  # Use a professional color palette
+  scale_color_brewer(palette = "Set1", 
+                    labels = c("female" = "Female", "male" = "Male")) +
+ # Format y-axis as percentage with breaks at 20% increments
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    breaks = seq(0, 100, by = 20)
+  ) +
+  # Rename x-axis labels if needed
+  scale_x_discrete(labels = c(
+    "SLUR" = "Slur",
+    "GENDERED" = "Gendered Term",
+    "NEUTRAL" = "Neutral Term"
+  )) +
+  # Use a clean, professional theme
+  theme_bw() +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),  # Changed to horizontal (angle = 0)
+    legend.position = "right",
+    legend.background = element_rect(fill = NA, color = NA),
+    strip.background = element_rect(fill = "gray95"),
+    strip.text = element_text(size = 11),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)
+  )
+```
+
+```{r}
+# Convert existing variables to factors
+data_exp$response_type <- factor(data_exp$response_type)  # Keep original values
+data_exp$pejorative_type <- factor(data_exp$pejorative_type)
+data_exp$participant_gender <- factor(data_exp$participant_gender)
+data_exp$speaker <- factor(data_exp$speaker)
+data_exp$submission_id <- factor(data_exp$submission_id)
+
+
+# Create binary response variable
+data_exp$response_binary <- ifelse(data_exp$response_type == "Group", 1, 0)
+
+# Now run the model
+model_moderate <- glmer(
+  response_binary ~ pejorative_type * participant_gender * speaker + 
+                   (1 + pejorative_type | submission_id) + 
+                   (1 | item_number),
+  data = data_exp,
+  family = binomial,
+  control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 50000))
+)
+summary(model_moderate)
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Aggregate data: Percentage of group responses per participant & pejorative type
+participant_summary <- data_exp %>%
+  group_by(submission_id, pejorative_type) %>%
+  summarize(group_response_rate = mean(response_binary) * 100, .groups = "drop")
+```
+
+
+```{r}
+library(ggplot2)
+
+ggplot(participant_summary, aes(x = pejorative_type, y = group_response_rate)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "blue") +
+  labs(
+    x = "Pejorative Type",
+    y = "Group-Directed Responses by Participant"
+  ) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    breaks = seq(0, 100, by = 20)
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Create heatmap showing individual participant responses
+# Option 1: Basic heatmap
+ggplot(participant_summary, aes(x = pejorative_type, y = reorder(submission_id, group_response_rate), fill = group_response_rate)) +
+  geom_tile(color = "white", size = 0.1) +
+  scale_fill_gradient2(
+    low = "white", 
+    mid = "lightblue", 
+    high = "darkblue",
+    midpoint = 50,
+    name = "Group Response\nRate (%)",
+    labels = function(x) paste0(x, "%")
+  ) +
+  labs(
+    x = "Pejorative Type",
+    y = "Participant ID",
+    title = "Individual Participant Response Patterns by Pejorative Type"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_blank(),  # Hide individual participant IDs for cleaner look
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+# Option 2: Clustered heatmap (groups similar participants together)
+library(tidyr)
+
+# Create wide format for clustering
+participant_wide <- participant_summary %>%
+  pivot_wider(names_from = pejorative_type, values_from = group_response_rate, values_fill = 0)
+
+# Calculate participant clusters based on response patterns
+participant_matrix <- as.matrix(participant_wide[, -1])  # Remove submission_id column
+rownames(participant_matrix) <- participant_wide$submission_id
+
+# Perform hierarchical clustering
+participant_clusters <- hclust(dist(participant_matrix))
+participant_order <- rownames(participant_matrix)[participant_clusters$order]
+
+# Add cluster order to data
+participant_summary$participant_order <- factor(participant_summary$submission_id, levels = participant_order)
+
+# Create clustered heatmap
+ggplot(participant_summary, aes(x = pejorative_type, y = participant_order, fill = group_response_rate)) +
+  geom_tile(color = "white", size = 0.1) +
+  scale_fill_gradient2(
+    low = "white", 
+    mid = "lightblue", 
+    high = "darkblue",
+    midpoint = 50,
+    name = "Group Response\nRate (%)",
+    labels = function(x) paste0(x, "%")
+  ) +
+  labs(
+    x = "Pejorative Type",
+    y = "Participants (Clustered by Similarity)",
+    title = "Individual Participant Response Patterns by Pejorative Type",
+    subtitle = "Participants clustered by response similarity"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_blank(),  # Hide individual participant IDs
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+# Option 3: Heatmap with participant gender information
+# First, get participant gender information
+participant_gender <- data_exp %>%
+  select(submission_id, participant_gender) %>%
+  distinct()
+
+# Merge with summary data
+participant_summary_with_gender <- participant_summary %>%
+  left_join(participant_gender, by = "submission_id")
+
+# Create heatmap faceted by gender
+ggplot(participant_summary_with_gender, aes(x = pejorative_type, y = reorder(submission_id, group_response_rate), fill = group_response_rate)) +
+  geom_tile(color = "white", size = 0.1) +
+  scale_fill_gradient2(
+    low = "white", 
+    mid = "lightblue", 
+    high = "darkblue",
+    midpoint = 50,
+    name = "Group Response\nRate (%)",
+    labels = function(x) paste0(x, "%")
+  ) +
+  facet_wrap(~participant_gender, scales = "free_y", labeller = labeller(participant_gender = c("female" = "Female Participants", "male" = "Male Participants"))) +
+  labs(
+    x = "Pejorative Type",
+    y = "Participants",
+    title = "Individual Participant Response Patterns by Pejorative Type and Gender"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(hjust = 0.5),
+    strip.text = element_text(size = 11)
+  )
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+# Create participant-level response rates for each pejorative type
+participant_by_pejorative <- data_exp %>%
+  group_by(submission_id, pejorative_type) %>%
+  summarize(group_response_rate = mean(response_binary), .groups = "drop") %>%
+  pivot_wider(names_from = pejorative_type, values_from = group_response_rate, values_fill = 0)
+
+# Calculate correlation matrix
+correlation_matrix <- participant_by_pejorative %>%
+  select(-submission_id) %>%
+  cor(use = "complete.obs")
+
+print("Correlation Matrix:")
+print(round(correlation_matrix, 3))
+
+# Test significance of specific correlations using the correct column names
+# Correlation between SLUR and GOI
+cor_test_slur_goi <- cor.test(participant_by_pejorative$SLUR, participant_by_pejorative$GOI)
+print("Correlation between SLUR and GOI:")
+print(cor_test_slur_goi)
+
+# Correlation between SLUR and COI  
+cor_test_slur_coi <- cor.test(participant_by_pejorative$SLUR, participant_by_pejorative$COI)
+print("Correlation between SLUR and COI:")
+print(cor_test_slur_coi)
+
+# Correlation between GOI and COI
+cor_test_goi_coi <- cor.test(participant_by_pejorative$GOI, participant_by_pejorative$COI)
+print("Correlation between GOI and COI:")
+print(cor_test_goi_coi)
+
+# Create scatterplots
+library(ggplot2)
+
+# SLUR vs GOI
+ggplot(participant_by_pejorative, aes(x = SLUR, y = GOI)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(
+    x = "Group Response Rate for SLUR",
+    y = "Group Response Rate for GOI",
+    title = "Correlation between SLUR and GOI Response Rates",
+    subtitle = paste("r =", round(cor(participant_by_pejorative$SLUR, participant_by_pejorative$GOI), 3))
+  ) +
+  scale_x_continuous(labels = function(x) paste0(x*100, "%")) +
+  scale_y_continuous(labels = function(x) paste0(x*100, "%")) +
+  theme_minimal()
+
+# SLUR vs COI
+ggplot(participant_by_pejorative, aes(x = SLUR, y = COI)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(
+    x = "Group Response Rate for SLUR",
+    y = "Group Response Rate for COI",
+    title = "Correlation between SLUR and COI Response Rates",
+    subtitle = paste("r =", round(cor(participant_by_pejorative$SLUR, participant_by_pejorative$COI), 3))
+  ) +
+  scale_x_continuous(labels = function(x) paste0(x*100, "%")) +
+  scale_y_continuous(labels = function(x) paste0(x*100, "%")) +
+  theme_minimal()
+```
+
+```{r}
+library(dplyr)
+
+# Split participants using 62.5% as the cutoff threshold
+# Exactly 62.5% counts as "Low"
+cutoff_threshold <- 0.625
+participant_slur_classification <- participant_by_pejorative %>%
+  mutate(
+    slur_group_responder = ifelse(SLUR > cutoff_threshold, "High (>62.5%)", "Low (≤62.5%)")
+  )
+
+# Check the distribution
+table(participant_slur_classification$slur_group_responder)
+
+# Calculate GOI response rates for each group
+goi_by_slur_group <- participant_slur_classification %>%
+  group_by(slur_group_responder) %>%
+  summarise(
+    n_participants = n(),
+    mean_goi_rate = mean(GOI) * 100,
+    sd_goi_rate = sd(GOI) * 100,
+    median_goi_rate = median(GOI) * 100,
+    .groups = "drop"
+  )
+
+print("GOI response rates by SLUR group response behavior (62.5% threshold):")
+print(goi_by_slur_group)
+
+# Statistical test
+slur_high_goi <- participant_slur_classification$GOI[participant_slur_classification$slur_group_responder == "High (>62.5%)"]
+slur_low_goi <- participant_slur_classification$GOI[participant_slur_classification$slur_group_responder == "Low (≤62.5%)"]
+
+if(length(slur_high_goi) > 0 && length(slur_low_goi) > 0) {
+  t_test_result <- t.test(slur_high_goi, slur_low_goi)
+  print("T-test comparing GOI rates (>62.5% vs ≤62.5% SLUR responders):")
+  print(t_test_result)
+  
+  # Effect size (Cohen's d)
+  pooled_sd <- sqrt(((length(slur_high_goi) - 1) * var(slur_high_goi) + 
+                     (length(slur_low_goi) - 1) * var(slur_low_goi)) / 
+                    (length(slur_high_goi) + length(slur_low_goi) - 2))
+  
+  cohens_d <- (mean(slur_high_goi) - mean(slur_low_goi)) / pooled_sd
+  
+  cat("\nEffect size (Cohen's d):", round(cohens_d, 3), "\n")
+  
+  # Summary for manuscript
+  cat("\nSummary for manuscript:\n")
+  cat("Participants with high SLUR group response rates (>62.5%, n =", length(slur_high_goi), 
+      ") had a mean GOI group response rate of", round(mean(slur_high_goi) * 100, 1), 
+      "% compared to", round(mean(slur_low_goi) * 100, 1), 
+      "% for those with low SLUR group response rates (≤62.5%, n =", length(slur_low_goi), 
+      "), t(", round(t_test_result$parameter, 1), ") =", round(t_test_result$statistic, 3), 
+      ", p =", round(t_test_result$p.value, 3), 
+      ", Cohen's d =", round(cohens_d, 3), "\n")
+} else {
+  cat("Not enough participants in one or both groups for statistical testing\n")
+  cat("High SLUR group size:", length(slur_high_goi), "\n")
+  cat("Low SLUR group size:", length(slur_low_goi), "\n")
+}
+
+# Show the overall correlation as well
+cat("\nOverall correlation between SLUR and GOI: r =", 
+    round(cor(participant_by_pejorative$SLUR, participant_by_pejorative$GOI), 3), 
+    ", p =", round(cor.test(participant_by_pejorative$SLUR, participant_by_pejorative$GOI)$p.value, 3), "\n")
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(viridis)
+
+# Calculate proportion of "Group" responses for each pejorative word
+pejorative_word_stats <- data_exp %>%
+  group_by(pejorative_type, pejorative_word) %>%
+  summarize(
+    total = n(),
+    group_responses = sum(response_type == "Group"),
+    individual_responses = sum(response_type != "Group"),
+    group_pct = mean(response_type == "Group") * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(pejorative_type, desc(group_pct))
+
+# Print the statistics
+print(pejorative_word_stats)
+
+# CHI-SQUARE TESTS: Within-category variation
+print("=== CHI-SQUARE TESTS FOR WITHIN-CATEGORY VARIATION ===")
+
+for(pej_type in unique(pejorative_word_stats$pejorative_type)) {
+  cat("\n--- Testing variation within", pej_type, "words ---\n")
+  
+  # Get data for this pejorative type
+  type_data <- data_exp %>%
+    filter(pejorative_type == pej_type) %>%
+    select(pejorative_word, response_type)
+  
+  # Create contingency table
+  contingency_table <- table(type_data$pejorative_word, type_data$response_type)
+  
+  # Show the contingency table
+  cat("Contingency table:\n")
+  print(contingency_table)
+  
+  # Only run chi-square if we have enough words (>1) and some variation
+  if(nrow(contingency_table) > 1 && sum(contingency_table) > 0) {
+    
+    # Check if we have enough expected frequencies (all cells >= 5)
+    chi_result <- chisq.test(contingency_table)
+    
+    cat("Chi-square test results:\n")
+    cat("χ² =", round(chi_result$statistic, 3), "\n")
+    cat("df =", chi_result$parameter, "\n")
+    cat("p-value =", format.pval(chi_result$p.value, digits = 3), "\n")
+    cat("Interpretation:", ifelse(chi_result$p.value < 0.05, 
+                                "Significant variation between words", 
+                                "No significant variation between words"), "\n")
+    
+    # Show percentages for each word in this category
+    word_percentages <- pejorative_word_stats %>%
+      filter(pejorative_type == pej_type) %>%
+      select(pejorative_word, group_pct) %>%
+      arrange(desc(group_pct))
+    
+    cat("Group-derogation percentages by word:\n")
+    for(i in 1:nrow(word_percentages)) {
+      cat("  ", word_percentages$pejorative_word[i], ": ", 
+          round(word_percentages$group_pct[i], 1), "%\n", sep = "")
+    }
+    
+  } else {
+    cat("Cannot perform chi-square test (insufficient data or only one word)\n")
+  }
+  
+  cat("\n")
+}
+
+# Create the existing plots...
+word_plot <- ggplot(pejorative_word_stats, 
+                   aes(x = reorder(pejorative_word, group_pct), 
+                       y = group_pct, 
+                       fill = pejorative_type)) +
+  geom_bar(stat = "identity", alpha = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", group_pct)), 
+            hjust = -0.1, size = 3.5) +
+  scale_fill_viridis_d() +
+  labs(
+    title = "Proportion of Group-Directed Responses by Pejorative Word",
+    subtitle = "Words ordered by percentage within each category",
+    x = "Pejorative Word",
+    y = "Group-Directed Responses (%)",
+    fill = "Pejorative Type"
+  ) +
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold")
+  ) +
+  facet_wrap(~pejorative_type, scales = "free_y")
+
+# Create a second visualization with words grouped by category
+category_plot <- ggplot(pejorative_word_stats, 
+                       aes(x = pejorative_type, y = group_pct, color = pejorative_word)) +
+  geom_point(aes(size = total), alpha = 0.7, position = position_jitter(width = 0.2, height = 0)) +
+  scale_color_viridis_d() +
+  scale_size_continuous(range = c(3, 8)) +
+  labs(
+    title = "Group-Directed Responses by Pejorative Word and Category",
+    x = "Pejorative Type",
+    y = "Group-Directed Responses (%)",
+    color = "Pejorative Word",
+    size = "Number of\nObservations"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    legend.title = element_text(face = "bold")
+  )
+
+# Display the plots
+print(word_plot)
+print(category_plot)
+
+# Optional: Create a heatmap for an alternative view
+if(length(unique(pejorative_word_stats$pejorative_word)) >= 5) {
+  heatmap_data <- pejorative_word_stats %>%
+    select(pejorative_type, pejorative_word, group_pct)
+  
+  heatmap_plot <- ggplot(heatmap_data, 
+                        aes(x = pejorative_type, y = pejorative_word, fill = group_pct)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = sprintf("%.1f%%", group_pct)), color = "white", size = 3) +
+    scale_fill_viridis_c() +
+    labs(
+      title = "Heatmap of Group-Directed Responses by Pejorative Word",
+      x = "Pejorative Type",
+      y = "Pejorative Word",
+      fill = "Group %"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold"),
+      axis.title = element_text(face = "bold")
+    )
+  
+  print(heatmap_plot)
+}
+```
+
+
+
