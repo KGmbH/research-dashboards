@@ -23,6 +23,12 @@ Interactive dashboards built with **Quarto** and **R** to present research findi
 An interactive dashboard based on my work on the felicity conditions and interpretation of wh-exclamative clauses.
 :::
 
+::: dashboard-card
+### [Gender Slur Dashboard](./gender_slur_dashboard/index.html)
+
+Experimental investigation of gender-oriented derogation and how interpretation varies with context and speaker properties.
+:::
+
 ::: {.dashboard-card .dashboard-card-coming}
 ### More dashboards coming soon
 
